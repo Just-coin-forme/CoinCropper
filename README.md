@@ -1,1 +1,1 @@
-# CoinCropper
+# CoinCropper :D
