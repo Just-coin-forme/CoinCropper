@@ -7,6 +7,7 @@ from PIL import Image as PILImage, ImageOps
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.metrics import dp, sp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
@@ -32,6 +33,7 @@ ByteOrder = autoclass("java.nio.ByteOrder")
 HashMap = autoclass("java.util.HashMap")
 OrtEnvironment = autoclass("ai.onnxruntime.OrtEnvironment")
 OrtSession = autoclass("ai.onnxruntime.OrtSession")
+SessionOptions = autoclass("ai.onnxruntime.OrtSession$SessionOptions")
 OnnxTensor = autoclass("ai.onnxruntime.OnnxTensor")
 
 
@@ -98,7 +100,7 @@ class CoinDetector:
     def __init__(self, model_path):
         self.env = OrtEnvironment.getEnvironment()
         self.session = self.env.createSession(
-            model_path, OrtSession.SessionOptions()
+            model_path, SessionOptions()
         )
         self.input_name = self.session.getInputNames().iterator().next()
 
@@ -171,21 +173,29 @@ class CoinDetector:
 
 
 # ---------------------------------------------------------
-# UI helpers
+# UI helpers (розміри в dp/sp, щоб кнопки були більшими)
 # ---------------------------------------------------------
 def make_label(text, size=20, height=45):
-    return Label(text=text, font_size=size, size_hint_y=None, height=height)
+    return Label(
+        text=text, font_size=sp(size * 1.3),
+        size_hint_y=None, height=dp(height * 1.3),
+    )
 
 
 def make_button(text, callback, size=20, height=60, **kw):
-    b = Button(text=text, font_size=size, size_hint_y=None, height=height, **kw)
+    b = Button(
+        text=text, font_size=sp(size * 1.3),
+        size_hint_y=None, height=dp(height * 1.3), **kw
+    )
     b.bind(on_press=callback)
     return b
 
 
 def make_scroll_grid():
     sv = ScrollView()
-    grid = GridLayout(cols=3, spacing=10, padding=10, size_hint_y=None)
+    grid = GridLayout(
+        cols=3, spacing=dp(8), padding=dp(8), size_hint_y=None
+    )
     grid.bind(minimum_height=grid.setter("height"))
     sv.add_widget(grid)
     return sv, grid
@@ -194,14 +204,14 @@ def make_scroll_grid():
 def add_thumb(grid, path, on_delete=None):
     box = BoxLayout(
         orientation="vertical", size_hint=(None, None),
-        size=(150, 185), spacing=5,
+        size=(dp(105), dp(145)), spacing=dp(4),
     )
-    box.add_widget(
-        Image(source=path, size_hint=(None, None), size=(150, 150))
-    )
+    box.add_widget(Image(
+        source=path, size_hint=(None, None), size=(dp(105), dp(105))
+    ))
     if on_delete:
         box.add_widget(
-            make_button("Видалити", lambda i: on_delete(), 14, 30)
+            make_button("Видалити", lambda i: on_delete(), 12, 26)
         )
     grid.add_widget(box)
 
@@ -238,18 +248,25 @@ class CoinCropperApp(App):
     # ---------------- main menu / search ----------------
     def show_main_menu(self, instance=None):
         self.main.clear_widgets()
-        lay = BoxLayout(orientation="vertical", padding=30, spacing=20)
-        lay.add_widget(make_label("Монетки", 36, 100))
-        lay.add_widget(make_button("Обрізання", self.show_crop_screen, 25, 90))
-        lay.add_widget(make_button("Пошук монети", self.show_search_screen, 25, 90))
+        lay = BoxLayout(
+            orientation="vertical", padding=dp(24), spacing=dp(16)
+        )
+        lay.add_widget(make_label("Монетки", 30, 90))
+        lay.add_widget(make_button("Обрізання", self.show_crop_screen, 22, 80))
+        lay.add_widget(
+            make_button("Пошук монети", self.show_search_screen, 22, 80)
+        )
         self.main.add_widget(lay)
 
     def show_search_screen(self, instance=None):
         self.main.clear_widgets()
-        lay = BoxLayout(orientation="vertical", padding=20, spacing=20)
-        lay.add_widget(make_label("Пошук монети", 30, 70))
+        lay = BoxLayout(
+            orientation="vertical", padding=dp(16), spacing=dp(16)
+        )
+        lay.add_widget(make_label("Пошук монети", 26, 60))
         lay.add_widget(Label(
-            text="Функція пошуку монети буде додана пізніше.", font_size=20
+            text="Функція пошуку монети буде додана пізніше.",
+            font_size=sp(22),
         ))
         lay.add_widget(make_button("Головне меню", self.show_main_menu, 20))
         self.main.add_widget(lay)
@@ -257,12 +274,18 @@ class CoinCropperApp(App):
     # ---------------- crop screen with tabs ----------------
     def show_crop_screen(self, instance=None):
         self.main.clear_widgets()
-        screen = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        screen = BoxLayout(
+            orientation="vertical", padding=dp(8), spacing=dp(8)
+        )
 
-        tabs = BoxLayout(size_hint_y=None, height=55, spacing=5)
-        self.tab_select = Button(text="1. Вибір", font_size=18)
-        self.tab_process = Button(text="2. Обрізання", font_size=18, disabled=True)
-        self.tab_result = Button(text="3. Результат", font_size=18, disabled=True)
+        tabs = BoxLayout(size_hint_y=None, height=dp(75), spacing=dp(4))
+        self.tab_select = Button(text="1. Вибір", font_size=sp(20))
+        self.tab_process = Button(
+            text="2. Обрізання", font_size=sp(20), disabled=True
+        )
+        self.tab_result = Button(
+            text="3. Результат", font_size=sp(20), disabled=True
+        )
         self.tab_select.bind(on_press=lambda i: self.build_select_tab())
         self.tab_process.bind(on_press=lambda i: self.build_process_tab())
         self.tab_result.bind(on_press=lambda i: self.build_result_tab())
@@ -270,23 +293,25 @@ class CoinCropperApp(App):
             tabs.add_widget(t)
         screen.add_widget(tabs)
 
-        self.content = BoxLayout(orientation="vertical", spacing=10)
+        self.content = BoxLayout(orientation="vertical", spacing=dp(8))
         screen.add_widget(self.content)
-        screen.add_widget(make_button("Головне меню", self.show_main_menu, 18, 50))
+        screen.add_widget(
+            make_button("Головне меню", self.show_main_menu, 18, 50)
+        )
         self.main.add_widget(screen)
         self.build_select_tab()
 
     # ---------------- select tab ----------------
     def build_select_tab(self):
         self.content.clear_widgets()
-        self.content.add_widget(make_label("Виберіть фотографії", 26, 50))
+        self.content.add_widget(make_label("Виберіть фотографії", 22, 50))
 
-        row = BoxLayout(size_hint_y=None, height=60, spacing=10)
+        row = BoxLayout(size_hint_y=None, height=dp(80), spacing=dp(8))
         row.add_widget(Button(
-            text="Додати фото", font_size=18, on_press=self.select_photos
+            text="Додати фото", font_size=sp(24), on_press=self.select_photos
         ))
         row.add_widget(Button(
-            text="Очистити все", font_size=18,
+            text="Очистити все", font_size=sp(24),
             disabled=not self.selected_uris,
             on_press=self.clear_selected,
         ))
@@ -296,7 +321,7 @@ class CoinCropperApp(App):
             f"Вибрано фотографій: {len(self.selected_uris)}"
             if self.selected_uris else "Фото ще не вибрано"
         )
-        self.content.add_widget(make_label(text, 18))
+        self.content.add_widget(make_label(text, 16))
 
         sv, grid = make_scroll_grid()
         self.content.add_widget(sv)
@@ -319,7 +344,7 @@ class CoinCropperApp(App):
 
         if self.selected_uris:
             self.content.add_widget(
-                make_button("Обрізати", self.start_processing)
+                make_button("Обрізати", self.start_processing, 22, 70)
             )
 
     def select_photos(self, instance):
@@ -350,7 +375,9 @@ class CoinCropperApp(App):
             if str(uri) not in known:
                 self.selected_uris.append(uri)
                 known.add(str(uri))
-        self.build_select_tab()
+
+        # оновлення інтерфейсу має йти в потоці Kivy
+        Clock.schedule_once(lambda dt: self.build_select_tab(), 0)
 
     def remove_uri(self, uri):
         self.selected_uris = [
@@ -379,10 +406,11 @@ class CoinCropperApp(App):
 
     def build_process_tab(self):
         self.content.clear_widgets()
-        self.content.add_widget(make_label("Обрізання фотографій", 26, 50))
-        self.progress_label = make_label("Підготовка...", 20)
+        self.content.add_widget(make_label("Обрізання фотографій", 22, 50))
+        self.progress_label = make_label("Підготовка...", 18, 60)
+        self.progress_label.text_size = (self.main.width - dp(20), None)
         self.content.add_widget(self.progress_label)
-        self.count_label = make_label("Знайдено: 0    Не знайдено: 0", 18, 40)
+        self.count_label = make_label("Знайдено: 0    Не знайдено: 0", 16, 40)
         self.content.add_widget(self.count_label)
         sv, self.process_grid = make_scroll_grid()
         self.content.add_widget(sv)
@@ -442,7 +470,7 @@ class CoinCropperApp(App):
 
         except Exception as e:
             print("PROCESS ERROR:", e)
-            self.progress_label.text = f"Помилка: {str(e)[:80]}"
+            self.progress_label.text = f"Помилка: {str(e)[:150]}"
             self.failed_count += 1
             if original is not None:
                 try:
@@ -477,11 +505,11 @@ class CoinCropperApp(App):
         if self.processing_index < len(self.selected_uris):
             return
         self.content.clear_widgets()
-        self.content.add_widget(make_label("Результат", 26, 50))
+        self.content.add_widget(make_label("Результат", 22, 50))
         self.content.add_widget(make_label(
             f"Знайдено монет: {self.success_count}\n"
             f"Не знайдено: {self.failed_count}\n\n"
-            f"Файли збережено в Галерею.", 20, 110,
+            f"Файли збережено в Галерею.", 18, 110,
         ))
         sv, grid = make_scroll_grid()
         self.content.add_widget(sv)
