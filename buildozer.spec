@@ -7,7 +7,8 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,onnx
 version = 0.1
 
-requirements = python3,kivy==2.3.0,pyjnius,android,numpy,pillow
+requirements = python3==3.11.5,hostpython3==3.11.5,kivy==2.3.0,pyjnius,android,numpy,pillow
+p4a.branch = v2024.01.21
 
 orientation = portrait
 fullscreen = 0
@@ -23,4 +24,4 @@ android.gradle_dependencies = com.microsoft.onnxruntime:onnxruntime-android:1.17
 
 [buildozer]
 log_level = 2
-warn_on_root = 1
+warn_on_root = 0
