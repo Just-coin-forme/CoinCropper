@@ -21,7 +21,7 @@ from android import activity
 MODEL_NAME = "best.onnx"
 INPUT_SIZE = 640
 CONF_THRESHOLD = 0.25
-PADDING_PERCENT = -5
+PADDING_PERCENT = -15
 
 PythonActivity = autoclass("org.kivy.android.PythonActivity")
 Intent = autoclass("android.content.Intent")
