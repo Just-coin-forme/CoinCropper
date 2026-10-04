@@ -21,7 +21,7 @@ from android import activity
 MODEL_NAME = "best.onnx"
 INPUT_SIZE = 640
 CONF_THRESHOLD = 0.25
-PADDING_PERCENT = -15
+PADDING_PERCENT = 0
 
 PythonActivity = autoclass("org.kivy.android.PythonActivity")
 Intent = autoclass("android.content.Intent")
@@ -412,6 +412,38 @@ class CoinCropperApp(App):
             self.error_label.text = "Помилка моделі: " + str(e)[:300]
             self.tab_select.disabled = False
 
+    def square_crop(self, img, cx, cy, r):
+        side = max(2, int(round(2 * r)))
+        left, top = int(round(cx - r)), int(round(cy - r))
+        fill = tuple(img.resize((1, 1), PILImage.BILINEAR).getpixel((0, 0)))
+        canvas = PILImage.new("RGB", (side, side), fill)
+        sl, st = max(0, left), max(0, top)
+        sr, sb = min(img.width, left + side), min(img.height, top + side)
+        if sr > sl and sb > st:
+            canvas.paste(img.crop((sl, st, sr, sb)), (sl - left, st - top))
+        return canvas
+
+    def coin_circle(self, img):
+        dets = self.model.predict(img)
+        if not dets:
+            return None
+        x1, y1, x2, y2 = max(dets, key=lambda d: d["confidence"])["box"]
+        cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+        r = max(x2 - x1, y2 - y1) / 2.0
+
+        # другий прохід: дивимось на монету ближче, рамка виходить точнішою
+        big = r * 1.5
+        left, top = int(round(cx - big)), int(round(cy - big))
+        view = self.square_crop(img, cx, cy, big)
+        dets2 = self.model.predict(view)
+        if dets2:
+            a1, b1, a2, b2 = max(dets2, key=lambda d: d["confidence"])["box"]
+            r2 = max(a2 - a1, b2 - b1) / 2.0
+            if 0.6 * r < r2 < 1.5 * r:
+                cx, cy = left + (a1 + a2) / 2.0, top + (b1 + b2) / 2.0
+                r = r2
+        return cx, cy, r
+
     def process_next(self, dt):
         total = len(self.selected_uris)
         if self.processing_index >= total:
@@ -428,28 +460,15 @@ class CoinCropperApp(App):
                 PILImage.open(io.BytesIO(AndroidStorage.read_uri(uri)))
             ).convert("RGB")
 
-            detections = self.model.predict(original)
+            circle = self.coin_circle(original)
             self.debug_label.text = "Модель: " + self.model.last_info
 
-            if not detections:
+            if circle is None:
                 self.add_failed(original, uri, index)
             else:
-                best = max(detections, key=lambda d: d["confidence"])
-                self.debug_label.text = (
-                    f"Модель: {self.model.last_info}; "
-                    f"обрано {best['confidence']:.2f}"
-                )
-                x1, y1, x2, y2 = best["box"]
-                r = max(x2 - x1, y2 - y1) / 2.0
-                pad = r * PADDING_PERCENT / 100.0
-                cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-                box = (
-                    int(max(0, cx - r - pad)),
-                    int(max(0, cy - r - pad)),
-                    int(min(original.width, cx + r + pad)),
-                    int(min(original.height, cy + r + pad)),
-                )
-                cropped = original.crop(box)
+                cx, cy, r = circle
+                r = r * (1 + PADDING_PERCENT / 100.0)
+                cropped = self.square_crop(original, cx, cy, r)
                 name = f"coin_{index + 1}.jpg"
                 self.items.append({
                     "folder": "Обрізані", "name": name,
