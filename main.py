@@ -1,6 +1,5 @@
 import io
 import os
-import json
 import tempfile
 
 import numpy as np
@@ -19,20 +18,13 @@ from kivy.uix.gridlayout import GridLayout
 from jnius import autoclass, cast
 from android import activity
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 MODEL_NAME = "best.onnx"
-EMBED_NAME = "embedder.onnx"
-INDEX_NAME = "index.npz"
 INPUT_SIZE = 640
 CONF_THRESHOLD = 0.25
-PADDING_PERCENT = -15   # запас при обрізанні
-SEARCH_PADDING = 0      # для пошуку має збігатися з тим, як будувався індекс
-MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+PADDING_PERCENT = -15
 
 PythonActivity = autoclass("org.kivy.android.PythonActivity")
 Intent = autoclass("android.content.Intent")
-Uri = autoclass("android.net.Uri")
 MediaMedia = autoclass("android.provider.MediaStore$Images$Media")
 ContentValues = autoclass("android.content.ContentValues")
 BuildVersion = autoclass("android.os.Build$VERSION")
@@ -170,44 +162,6 @@ class CoinDetector:
         return detections
 
 
-class Embedder:
-    """Модель відбитків (embedder.onnx) для пошуку монети."""
-
-    def __init__(self, model_path):
-        self.env = OrtEnvironment.getEnvironment()
-        self.session = self.env.createSession(model_path, SessionOptions())
-        self.input_name = self.session.getInputNames().iterator().next()
-
-    def embed(self, image):
-        a = np.asarray(
-            image.resize((224, 224), PILImage.BILINEAR), dtype=np.float32
-        ) / 255.0
-        a = (a - MEAN) / STD
-        arr = np.ascontiguousarray(a.transpose(2, 0, 1)[None], dtype=np.float32)
-        raw = arr.tobytes()
-
-        buf = ByteBuffer.allocateDirect(len(raw)).order(
-            ByteOrder.nativeOrder()
-        )
-        buf.put(raw)
-        buf.rewind()
-
-        tensor = OnnxTensor.createTensor(
-            self.env, buf.asFloatBuffer(), [1, 3, 224, 224]
-        )
-        inputs = HashMap()
-        inputs.put(self.input_name, tensor)
-
-        result = self.session.run(inputs)
-        try:
-            value = cast("ai.onnxruntime.OnnxTensor", result.get(0)).getValue()
-            v = np.array(value, dtype=np.float32).reshape(-1)
-        finally:
-            tensor.close()
-            result.close()
-        return v / np.linalg.norm(v)
-
-
 def make_label(text, size=20, height=45):
     return Label(
         text=text, font_size=sp(size * 1.3),
@@ -266,8 +220,6 @@ class CoinCropperApp(App):
         self.failed_count = 0
         self.processing_index = 0
         self.model = None
-        self.embedder = None
-        self.index = None
         self.temp_folder = tempfile.mkdtemp(prefix="coin_crop_")
 
         self.main = BoxLayout(orientation="vertical")
@@ -283,11 +235,6 @@ class CoinCropperApp(App):
         pil_image.save(path, "JPEG", quality=90)
         return path
 
-    def get_model(self):
-        if self.model is None:
-            self.model = CoinDetector(os.path.join(HERE, MODEL_NAME))
-        return self.model
-
     # ---------------- menu ----------------
     def show_main_menu(self, instance=None):
         self.main.clear_widgets()
@@ -299,106 +246,16 @@ class CoinCropperApp(App):
         )
         self.main.add_widget(lay)
 
-    # ---------------- search ----------------
     def show_search_screen(self, instance=None):
         self.main.clear_widgets()
-        lay = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        lay.add_widget(make_label("Пошук монети", 26, 55))
-        lay.add_widget(make_button("Вибрати фото", self.pick_search, 22, 70))
-        self.status = make_wrap_label("Виберіть фото монети.", 15, 60)
-        lay.add_widget(self.status)
-        self.preview = Image(size_hint_y=None, height=dp(130))
-        lay.add_widget(self.preview)
-        sv = ScrollView()
-        self.results = BoxLayout(
-            orientation="vertical", size_hint_y=None, spacing=dp(6)
-        )
-        self.results.bind(minimum_height=self.results.setter("height"))
-        sv.add_widget(self.results)
-        lay.add_widget(sv)
-        lay.add_widget(make_button("Головне меню", self.show_main_menu, 18, 50))
-        self.main.add_widget(lay)
-
-    def pick_search(self, instance):
-        intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
-        intent.addCategory(Intent.CATEGORY_OPENABLE)
-        intent.setType("image/*")
-        PythonActivity.mActivity.startActivityForResult(intent, 1002)
-
-    def crop_for_search(self, img):
-        dets = self.get_model().predict(img)
-        if not dets:
-            return None
-        x1, y1, x2, y2 = max(dets, key=lambda d: d["area"])["box"]
-        r = max(x2 - x1, y2 - y1) / 2.0
-        pad = r * SEARCH_PADDING / 100.0
-        cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-        return img.crop((
-            int(max(0, cx - r - pad)), int(max(0, cy - r - pad)),
-            int(min(img.width, cx + r + pad)), int(min(img.height, cy + r + pad)),
+        lay = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(16))
+        lay.add_widget(make_label("Пошук монети", 26, 60))
+        lay.add_widget(Label(
+            text="Функція пошуку монети буде додана пізніше.",
+            font_size=sp(22),
         ))
-
-    def run_search(self, uri):
-        self.results.clear_widgets()
-        try:
-            for f in (EMBED_NAME, INDEX_NAME):
-                if not os.path.exists(os.path.join(HERE, f)):
-                    self.status.text = f"Немає файлу {f} у додатку."
-                    return
-
-            img = ImageOps.exif_transpose(
-                PILImage.open(io.BytesIO(AndroidStorage.read_uri(uri)))
-            ).convert("RGB")
-
-            coin = self.crop_for_search(img)
-            note = ""
-            if coin is None:
-                coin = img
-                note = " (монету не знайдено, беру все фото)"
-            self.preview.source = self.save_temp(coin, "query.jpg", 300)
-            self.preview.reload()
-
-            if self.embedder is None:
-                self.embedder = Embedder(os.path.join(HERE, EMBED_NAME))
-            if self.index is None:
-                d = np.load(os.path.join(HERE, INDEX_NAME))
-                self.index = (d["vecs"], d["idx"], json.loads(str(d["rows"])))
-
-            vecs, idx, rows = self.index
-            sims = vecs @ self.embedder.embed(coin)
-            best = {}
-            for s, i in zip(sims, idx):
-                i = int(i)
-                best[i] = max(best.get(i, -1.0), float(s))
-            top = sorted(best.items(), key=lambda t: -t[1])[:3]
-
-            self.status.text = "Найближчі збіги:" + note
-            for i, s in top:
-                r = rows[i]
-                row = BoxLayout(
-                    size_hint_y=None, height=dp(100), spacing=dp(6)
-                )
-                lab = make_wrap_label(
-                    f"{r['name']}\n{r['nominal']}, {r['year']}\n"
-                    f"схожість: {s:.2f}", 14, 70
-                )
-                lab.size_hint_x = 0.65
-                row.add_widget(lab)
-                row.add_widget(make_button(
-                    "Відкрити",
-                    lambda b, u=r["url"]: self.open_url(u), 16, 50
-                ))
-                self.results.add_widget(row)
-        except Exception as e:
-            self.status.text = "Помилка: " + str(e)[:300]
-
-    def open_url(self, url):
-        try:
-            PythonActivity.mActivity.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            )
-        except Exception as e:
-            self.status.text = "Не вдалося відкрити: " + str(e)[:200]
+        lay.add_widget(make_button("Головне меню", self.show_main_menu, 20))
+        self.main.add_widget(lay)
 
     # ---------------- crop screen ----------------
     def show_crop_screen(self, instance=None):
@@ -482,7 +339,7 @@ class CoinCropperApp(App):
         PythonActivity.mActivity.startActivityForResult(intent, 1001)
 
     def on_activity_result(self, request_code, result_code, intent):
-        if request_code not in (1001, 1002) or intent is None:
+        if request_code != 1001 or intent is None:
             return
         if result_code != autoclass("android.app.Activity").RESULT_OK:
             return
@@ -496,11 +353,6 @@ class CoinCropperApp(App):
             uri = intent.getData()
             if uri is not None:
                 new_uris.append(uri)
-
-        if request_code == 1002:
-            if new_uris:
-                Clock.schedule_once(lambda dt: self.run_search(new_uris[0]), 0)
-            return
 
         known = {str(u) for u in self.selected_uris}
         for uri in new_uris:
@@ -550,7 +402,10 @@ class CoinCropperApp(App):
 
     def load_model(self, dt):
         try:
-            self.get_model()
+            path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), MODEL_NAME
+            )
+            self.model = CoinDetector(path)
             self.progress_label.text = "Починаю обробку..."
             Clock.schedule_once(self.process_next, 0.1)
         except Exception as e:
@@ -579,7 +434,11 @@ class CoinCropperApp(App):
             if not detections:
                 self.add_failed(original, uri, index)
             else:
-                best = max(detections, key=lambda d: d["area"])
+                best = max(detections, key=lambda d: d["confidence"])
+                self.debug_label.text = (
+                    f"Модель: {self.model.last_info}; "
+                    f"обрано {best['confidence']:.2f}"
+                )
                 x1, y1, x2, y2 = best["box"]
                 r = max(x2 - x1, y2 - y1) / 2.0
                 pad = r * PADDING_PERCENT / 100.0
